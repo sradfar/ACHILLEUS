@@ -1776,7 +1776,7 @@ export default function ProbabilisticCoastalTwinV5() {
               {/* Full-width inundation map */}
               <div className="card">
                 <div style={{fontSize:11,color:"#1e4055",letterSpacing:2,marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span>INUNDATION MAP · {station.city} · WL={(scenario??displayWL).toFixed(2)} m MLLW
+                  <span>INUNDATION MAP · {station.city} · WL={btub.wl.toFixed(2)} m MLLW
                     {probImpact&&scenario===null&&<span style={{color:"#5481bd"}}> · predictive p50 peak</span>}
                     {probImpact&&scenario!==null&&<span style={{color:"#5481bd"}}> · p90 planning scenario</span>}
                   </span>
