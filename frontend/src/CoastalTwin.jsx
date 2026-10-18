@@ -366,7 +366,7 @@ function TideChart({observed,predicted,isHistoric,label}){
   );
 }
 
-/** Selective-DA chart: tide + ensemble prior + posterior + p10/p90. */
+/** Extreme-aware DA chart: tide + ensemble prior + posterior + p10/p90. */
 function EnKFForecastChart({tideFc, enkfResult, mlResult, rmse, issuedAt}){
   if(!tideFc.length||!enkfResult) return null;
   const W=580,H=190;
@@ -460,7 +460,7 @@ function EnKFForecastChart({tideFc, enkfResult, mlResult, rmse, issuedAt}){
       <line x1={34} y1={H-24} x2={52} y2={H-24} stroke="#1e5070" strokeWidth={1} strokeDasharray="3,3"/>
       <text x={55} y={H-20} fill="#2a6080" fontSize={7}>Tide</text>
       <line x1={86} y1={H-24} x2={104} y2={H-24} stroke="#71a8f0" strokeWidth={2.5}/>
-      <text x={107} y={H-20} fill="#8060aa" fontSize={7}>Extreme-Aware DA</text>
+      <text x={107} y={H-20} fill="#8060aa" fontSize={7}>Extreme-aware DA</text>
       <rect x={205} y={H-30} width={12} height={8} fill="#71a8f0" opacity={0.22}/>
       <text x={220} y={H-20} fill="#5a4466" fontSize={7}>p10–p90 range</text>
       {mlLine&&<><line x1={310} y1={H-24} x2={328} y2={H-24} stroke="#ff8800" strokeWidth={1.5} strokeDasharray="4,2"/><text x={331} y={H-20} fill="#8a6030" fontSize={7}>Ensemble prior</text></>}
@@ -591,7 +591,7 @@ function HistoricalReplayPanelV2({replay,event,leadHours,onLeadChange,selectedIn
           <text x={width-right} y={height-8} textAnchor="end" fill="#5a3a88" fontSize={8}>{validTimes.at(-1).toISOString().slice(0,16).replace("T"," ")}</text>
           <line x1={left+8} y1={top+4} x2={left+28} y2={top+4} stroke="#32bad2" strokeWidth={1.6}/><text x={left+33} y={top+7} fill="#3a7890" fontSize={8}>Observed</text>
           <line x1={left+105} y1={top+4} x2={left+125} y2={top+4} stroke="#ff9a32" strokeWidth={1.3} strokeDasharray="5,3"/><text x={left+130} y={top+7} fill="#8a6030" fontSize={8}>Meta-stack</text>
-          <line x1={left+205} y1={top+4} x2={left+225} y2={top+4} stroke="#71a8f0" strokeWidth={2}/><text x={left+230} y={top+7} fill="#8060aa" fontSize={8}>Extreme-Aware DA</text>
+          <line x1={left+205} y1={top+4} x2={left+225} y2={top+4} stroke="#71a8f0" strokeWidth={2}/><text x={left+230} y={top+7} fill="#8060aa" fontSize={8}>Extreme-aware DA</text>
         </svg>
         </TimeSeriesHover>
         <input type="range" min={0} max={records.length-1} step={1} value={safeIndex} onChange={event=>onIndexChange(Number(event.target.value))}/>
@@ -604,7 +604,7 @@ function HistoricalReplayPanelV2({replay,event,leadHours,onLeadChange,selectedIn
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
         {[
           ["EVENT META-STACK RMSE",Number.isFinite(mlRmse)?`${mlRmse.toFixed(4)} m`:"—","#71a8f0"],
-          ["EVENT SELECTIVE-DA RMSE",Number.isFinite(daRmse)?`${daRmse.toFixed(4)} m`:"—","#71a8f0"],
+          ["EVENT EXTREME-AWARE DA RMSE",Number.isFinite(daRmse)?`${daRmse.toFixed(4)} m`:"—","#71a8f0"],
           ["EVENT RMSE CHANGE",Number.isFinite(gain)?`${gain>=0?"+":""}${gain.toFixed(2)}% skill`:"—",gain>=0?"#00cc77":"#ff5577"],
           ["EXTREME-ONLY CHANGE",Number.isFinite(extremeGain)?`${extremeGain>=0?"+":""}${extremeGain.toFixed(2)}% skill`:"No extreme hours",Number.isFinite(extremeGain)?(extremeGain>=0?"#00cc77":"#ff5577"):"#8060aa"],
           ["EVENT CLASSIFICATION",classification,classificationColor],
@@ -1095,7 +1095,7 @@ export default function ProbabilisticCoastalTwinV5() {
     });
   },[stIdx,timeMode,histBegin,histEnd,selectedEvent?.kind]);
 
-  // ── Probabilistic ML + selective DA forecast ──────────────────────────────
+  // ── Probabilistic ML + Extreme-aware DA forecast ──────────────────────────────
   const runML=useCallback(async()=>{
     if(!backend?.ok){setMlErr("Forecast service is reconnecting. Please retry.");return;}
     if(timeMode!=="live"){setMlErr("Switch to LIVE mode.");return;}
@@ -1251,7 +1251,7 @@ export default function ProbabilisticCoastalTwinV5() {
     return waterData.length?Math.max(...waterData.map(d=>d.v)):0;
   },[scenario,impactSource,impactForecast,probImpact,tideFc72,waterData]);
 
-  // Selective-DA best estimate at the nearest lead.
+  // Extreme-aware DA best estimate at the nearest lead.
   const enkfBestSurge = enkfResult?.mean[0]??null;
   const activeLeadCount = mlResult?.da_active?.filter(Boolean).length??0;
 
@@ -1473,7 +1473,7 @@ export default function ProbabilisticCoastalTwinV5() {
               value:timeMode==="live"?(latestRes!==null?(latestRes>0?"+":"")+latestRes.toFixed(3):"—"):(peakRes!==null?(peakRes>0?"+":"")+peakRes.toFixed(3):"—"),
               color:(timeMode==="live"?latestRes:peakRes)>0.3?"#ff8800":"#32bad2",cls:"metric",
               sub:(timeMode==="live"?latestRes:peakRes)>0.6?"⚠ SIGNIFICANT":(timeMode==="live"?latestRes:peakRes)>0.3?"ELEVATED":"TIDAL NORMAL"},
-            {label:"SELECTIVE-DA PEAK",unit:mlResult?`+${mlPeakLT}h · ensemble prior`:"run ⚡ Forecast",
+            {label:"EXTREME-AWARE DA PEAK",unit:mlResult?`+${mlPeakLT}h · ensemble prior`:"run ⚡ Forecast",
               value:mlPeak!==null?(mlPeak>0?"+":"")+mlPeak.toFixed(3):"—",
               color:mlPeak!==null?surgeColor(mlPeak):"#3a5568",cls:"metric",
               sub:mlPeak!==null?<span style={{background:surgeColor(mlPeak),color:"#fff",padding:"1px 8px",borderRadius:1,fontSize:11,letterSpacing:1.5,fontWeight:700}}>{riskLabel(mlPeak)}</span>:backend?.ok===false?"Backend offline":featureCols.length?`${featureCols.length} features`:"—"},
@@ -1534,7 +1534,7 @@ export default function ProbabilisticCoastalTwinV5() {
                 ["TIDE PREDS",    `${tideData.length} hourly predictions`],
                 ["PEAK WL",       peakWL!==null?`${peakWL.toFixed(3)} m MLLW`:"—"],
                 ["PEAK RESIDUAL", residuals.length?`${Math.max(...residuals.map(r=>r.v)).toFixed(3)} m`:"—"],
-                ["SELECTIVE DA",  mlResult?`${activeLeadCount}/5 lead gates active · ${mlResult.state_updates.reduce((a,b)=>a+b,0)} matured updates`:"Run forecast to evaluate gates"],
+                ["EXTREME-AWARE DA",  mlResult?`${activeLeadCount}/5 lead gates active · ${mlResult.state_updates.reduce((a,b)=>a+b,0)} matured updates`:"Run forecast to evaluate gates"],
                 ["ENSEMBLE",      mlResult?`N=${mlResult.ensemble_size} · ${mlResult.ensemble_strategy}`:"Forecast-conditioned Gaussian marginals"],
                 ["BACKEND",       backend===null?"Checking…":backend.ok?`Online (${ML_BASE})`:"Temporarily unavailable — please retry"],
                 ["SURGE PEAK",    mlResult?`${mlPeak>=0?"+":""}${mlPeak.toFixed(3)} m at +${mlPeakLT}h`:"—"],
@@ -1642,7 +1642,7 @@ export default function ProbabilisticCoastalTwinV5() {
               <div style={{display:"grid",gridTemplateColumns:"3fr 2fr",gap:14}}>
                 <div className="card">
                   <div style={{fontSize:11,color:"#1e4055",letterSpacing:2,marginBottom:10}}>TOTAL WATER LEVEL · Time-aligned Tide + Surge · {station.name}</div>
-                  <ForecastChart tideFc={tideFc72} surgeML={mlResult.surge_m} sigma={mlResult.sigma_m} modelName="Extreme-Aware DA" issuedAt={mlResult.issued_at}/>
+                  <ForecastChart tideFc={tideFc72} surgeML={mlResult.surge_m} sigma={mlResult.sigma_m} modelName="Extreme-aware DA" issuedAt={mlResult.issued_at}/>
                   <div style={{fontSize:11,color:"#1e4055",marginTop:8}}>WL(h) = NOAA tide(h) + surge(h) · Datum: MLLW · forecast-conditioned uncertainty</div>
                 </div>
                 <div className="card">
@@ -1881,7 +1881,7 @@ export default function ProbabilisticCoastalTwinV5() {
                     },
                     {
                       value:"prob",
-                      label:"Extreme-Aware DA",
+                      label:"Extreme-aware DA",
                       icon:"🔵",
                       desc: impactForecast?`${impactForecast.ensemble_size} members · ${impactForecast.da_active?.some(Boolean)?"active correction":"ML retained"} · conditional p10–p90 impacts`:"Load or run forecast first",
                       available: !!impactForecast,
