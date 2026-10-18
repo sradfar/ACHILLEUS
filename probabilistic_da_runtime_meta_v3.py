@@ -19,7 +19,7 @@ class OperationalMetaStackSelectiveDA(OperationalExtremeSelectiveDA):
 
     def forecast(self, *args, **kwargs) -> dict[str, Any]:
         result = super().forecast(*args, **kwargs)
-        result["model"] = "Ensemble meta-stack + extreme-selective error-state EnKF"
+        result["model"] = "Ensemble meta-stack + Extreme-aware DA (error-state EnKF)"
         result["prior_model"] = "Ensemble_v2 meta-stack"
         result["parameter_vintage"] = (
             "meta-stack rolling-origin selection (2025 evaluation fold)"

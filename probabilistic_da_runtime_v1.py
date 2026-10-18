@@ -394,7 +394,7 @@ class OperationalExtremeSelectiveDA:
             "station_name": self.station_name,
             "lead_times": list(LEAD_HOURS),
             "issued_at": issue_hour.isoformat(),
-            "model": "XGBoost + extreme-selective ML-centered EnKF",
+            "model": "XGBoost + Extreme-aware DA (ML-centered EnKF)",
             "ml_surge_m": ml.tolist(),
             "surge_m": mean_array.tolist(),
             "da_correction_m": corrections,
