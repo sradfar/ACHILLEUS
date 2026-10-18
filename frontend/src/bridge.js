@@ -1,8 +1,9 @@
 // Streamlit hosts the complete React dashboard and handles Python requests.
-const pending=new Map();let serial=0;let ready=false;let queue=[];const session=String(Date.now());
+const pending=new Map();let serial=0;let ready=false;let queue=[];let lastSent=null;const session=String(Date.now());
 const originalFetch=window.fetch.bind(window);
 const send=(type,extra={})=>window.parent.postMessage({isStreamlitMessage:true,type,...extra},"*");
-function flush(){if(ready&&queue.length)send("streamlit:setComponentValue",{value:{requests:queue},dataType:"json"});}
+// Sending an empty queue acknowledges consumed replies so Python can free them.
+function flush(){if(!ready)return;const signature=queue.map(r=>r.id).join(',');if(signature===lastSent)return;lastSent=signature;send("streamlit:setComponentValue",{value:{requests:queue},dataType:"json"});}
 window.addEventListener("message",event=>{
   if(event.source!==window.parent||event.data?.type!=="streamlit:render")return;
   ready=true;
@@ -22,7 +23,7 @@ window.fetch=(input,options={})=>{
   return new Promise((resolve,reject)=>{
     const id=session+"-"+String(++serial);pending.set(id,{resolve,reject});
     queue.push({id,url:raw,method:options.method??"GET",body:options.body??null});flush();
-    if(options.signal)options.signal.addEventListener("abort",()=>{if(pending.has(id)){pending.delete(id);queue=queue.filter(r=>r.id!==id);reject(new DOMException("Request aborted","AbortError"));}},{once:true});
+    if(options.signal)options.signal.addEventListener("abort",()=>{if(pending.has(id)){pending.delete(id);queue=queue.filter(r=>r.id!==id);flush();reject(new DOMException("Request aborted","AbortError"));}},{once:true});
   });
 };
 send("streamlit:componentReady",{apiVersion:1});

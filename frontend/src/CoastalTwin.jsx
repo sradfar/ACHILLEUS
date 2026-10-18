@@ -1,6 +1,7 @@
 import "./bridge.js";
 import "./design.css";
 import TimeSeriesHover from "./TimeSeriesHover.jsx";
+import FloodMap from "./FloodMap.jsx";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   alignHourlyTideV5,
@@ -54,32 +55,43 @@ const STATIONS = [
 
 const STORM_PRESETS = {
   "8771450": [
+    { name:"Tropical Storm Alberto", begin:"20240619", end:"20240621", kind:"da", note:"Saved +6h replay: event RMSE improves by 62.3% with Extreme-aware DA" },
+    { name:"Hurricane Hanna", begin:"20200725", end:"20200727", kind:"da", note:"Saved +6h replay: event RMSE improves by 15.7% with Extreme-aware DA" },
+    { name:"Hurricane Francine", begin:"20240911", end:"20240913", kind:"da", note:"Saved +6h replay: event RMSE improves by 10.3% with Extreme-aware DA" },
+    { name:"Hurricane Laura", begin:"20200826", end:"20200828", kind:"da", note:"Saved +6h replay: event RMSE improves by 6.1% with Extreme-aware DA" },
     { name:"Hurricane Beryl",    begin:"20240707", end:"20240709", kind:"da", note:"2024 rolling-origin DA benchmark; major Gulf Coast coastal extreme" },
     { name:"Hurricane Nicholas", begin:"20210914", end:"20210916", kind:"da", note:"2021 rolling-origin DA benchmark; Cat 1 Texas landfall" },
     { name:"Hurricane Ike",      begin:"20080912", end:"20080915", kind:"analog", note:"Observed historical analog; Cat 2 Galveston landfall" },
     { name:"Hurricane Harvey",   begin:"20170825", end:"20170829", kind:"analog", note:"Observed historical analog; Cat 4 landfall and record rainfall" },
   ],
   "8638610": [
+    { name:"December 2023 coastal storm", begin:"20231217", end:"20231219", kind:"da", note:"Saved +6h replay: event RMSE improves by 9.9% with Extreme-aware DA" },
     { name:"Hurricane Sandy",    begin:"20121029", end:"20121031", kind:"analog", note:"Observed historical analog; record Chesapeake surge" },
     { name:"Hurricane Isabel",   begin:"20030918", end:"20030920", kind:"analog", note:"Observed historical analog; Cat 2 and major Norfolk surge" },
     { name:"Hurricane Dorian",   begin:"20190906", end:"20190908", kind:"analog", note:"Observed historical analog; near-miss with significant surge" },
   ],
   "8518750": [
+    { name:"January 13 coastal storm", begin:"20240112", end:"20240114", kind:"da", note:"Saved +6h replay: event RMSE improves by 4.9%; extreme-hour RMSE improves by 16.7%" },
+    { name:"December 2023 coastal storm", begin:"20231217", end:"20231219", kind:"da", note:"Saved +6h replay: event RMSE improves by 4.1% with Extreme-aware DA" },
     { name:"Hurricane Sandy",    begin:"20121029", end:"20121031", kind:"analog", note:"Observed historical analog; record surge at The Battery" },
     { name:"Hurricane Irene",    begin:"20110827", end:"20110829", kind:"analog", note:"Observed historical analog; significant NYC surge" },
     { name:"1992 Nor'easter",    begin:"19921210", end:"19921212", kind:"analog", note:"Observed historical analog; major Northeast coastal storm" },
   ],
   "8443970": [
+    { name:"January 9 coastal storm", begin:"20240109", end:"20240111", kind:"da", note:"Saved +6h replay: event RMSE improves by 12.1% with Extreme-aware DA" },
+    { name:"January 13 coastal storm", begin:"20240112", end:"20240114", kind:"da", note:"Saved +6h replay: event RMSE improves by 10.5% with Extreme-aware DA" },
     { name:"Hurricane Bob",      begin:"19910819", end:"19910820", kind:"analog", note:"Observed hourly historical analog; Cat 2 New England landfall" },
     { name:"Hurricane Sandy",    begin:"20121029", end:"20121031", kind:"analog", note:"Observed historical analog; surge extended into New England" },
     { name:"1978 Blizzard",      begin:"19780206", end:"19780208", kind:"analog", note:"Observed historical analog; historic New England coastal storm" },
   ],
   "8534720": [
+    { name:"January 9 coastal storm", begin:"20240109", end:"20240111", kind:"da", note:"Saved +6h replay: event RMSE improves by 2.8%; extreme-hour RMSE improves by 11.9%" },
     { name:"Hurricane Sandy",    begin:"20121029", end:"20121031", kind:"analog", note:"Observed historical analog; record Atlantic City surge" },
     { name:"Hurricane Irene",    begin:"20110827", end:"20110829", kind:"analog", note:"Observed historical analog; significant New Jersey surge" },
     { name:"1992 Nor'easter",    begin:"19921210", end:"19921212", kind:"analog", note:"Observed historical analog; major Northeast coastal storm" },
   ],
   "8726520": [
+    { name:"Hurricane Helene", begin:"20240926", end:"20240928", kind:"da", note:"Saved +6h replay: event RMSE improves by 6.8% with Extreme-aware DA" },
     { name:"Hurricane Idalia",   begin:"20230829", end:"20230831", kind:"da", note:"2023 rolling-origin DA benchmark; major St. Petersburg surge" },
     { name:"Hurricane Ian",      begin:"20220928", end:"20220930", kind:"da", note:"2022 rolling-origin DA benchmark; Cat 4 Gulf Coast landfall" },
     { name:"Hurricane Irma",     begin:"20170910", end:"20170912", kind:"analog", note:"Observed historical analog; major Tampa Bay water-level response" },
@@ -663,231 +675,6 @@ function UncertaintyBand({enkfResult,issuedAt}){
   );
 }
 
-// ─── FLOOD MAP HELPERS ───────────────────────────────────────────────────────
-function deg2tileF(lat,lon,z){
-  // fractional tile coords (for pixel-perfect placement)
-  const n=2**z;
-  const x=(lon+180)/360*n;
-  const r=lat*Math.PI/180;
-  const y=(1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*n;
-  return{x,y};
-}
-// depth → colour: white(0) → cyan(0.3) → blue(1) → navy(2+)
-function depthColor(d,maxD){
-  if(d<=0) return null;
-  const t=Math.min(d/Math.max(maxD,2),1);
-  // 0→white-blue, 0.5→cyan, 1→deep navy
-  const r=Math.round(220-t*180);
-  const g=Math.round(240-t*150);
-  const b=Math.round(255-t*60);
-  return`rgb(${r},${g},${b})`;
-}
-// terrain elevation → green shade
-function terrainColor(elev){
-  const t=Math.min(Math.max(elev/15,0),1);
-  return`rgb(${Math.round(40+t*60)},${Math.round(80+t*90)},${Math.round(35+t*50)})`;
-}
-
-function FloodViz({elevGrid,floodResult,wl,stationId,lm}){
-  const [hover,setHover]=useState(null);
-  const [tiles,setTiles]=useState([]);
-
-  if(!elevGrid.length) return null;
-
-  const lats=elevGrid.map(p=>p.lat),lons=elevGrid.map(p=>p.lon);
-  const mnLat=Math.min(...lats),mxLat=Math.max(...lats);
-  const mnLon=Math.min(...lons),mxLon=Math.max(...lons);
-  const midLat=(mnLat+mxLat)/2,midLon=(mnLon+mxLon)/2;
-
-  const ML=38, MB=22, MR=54, MT=8;
-  const W=560, H=320;
-  const PW=W-ML-MR, PH=H-MT-MB;
-
-  const toX=lon=>ML+((lon-mnLon)/(mxLon-mnLon||1))*PW;
-  const toY=lat=>MT+PH-((lat-mnLat)/(mxLat-mnLat||1))*PH;
-  const cw=PW/28, ch=PH/28;
-
-  const cells=floodResult?.flooded??[];
-  const maxDepth=Math.max(floodResult?.maxDepth??0,0.1);
-
-  // Lat/lon grid lines — 4–5 ticks each axis
-  const latTicks=[];
-  const lonTicks=[];
-  const latStep=parseFloat(((mxLat-mnLat)/4).toPrecision(2));
-  const lonStep=parseFloat(((mxLon-mnLon)/4).toPrecision(2));
-  for(let v=Math.ceil(mnLat/latStep)*latStep;v<=mxLat+latStep*0.01;v=+(v+latStep).toFixed(6)) latTicks.push(+v.toFixed(4));
-  for(let v=Math.ceil(mnLon/lonStep)*lonStep;v<=mxLon+lonStep*0.01;v=+(v+lonStep).toFixed(6)) lonTicks.push(+v.toFixed(4));
-
-  // Colorbar geometry
-  const cbX=W-MR+8, cbY=MT+10, cbH=PH-20, cbW=14;
-
-  // OSM tile zoom for basemap
-  const zoom=12;
-  useEffect(()=>{
-    // Build OSM tile list covering bbox
-    function osmDeg2tile(lat,lon,z){
-      const n=2**z;
-      const x=Math.floor((lon+180)/360*n);
-      const r=lat*Math.PI/180;
-      const y=Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*n);
-      return{x,y};
-    }
-    function osmTile2bbox(tx,ty,z){
-      const n=2**z;
-      const lonMin=tx/n*360-180, lonMax=(tx+1)/n*360-180;
-      const latMax=Math.atan(Math.sinh(Math.PI*(1-2*ty/n)))*180/Math.PI;
-      const latMin=Math.atan(Math.sinh(Math.PI*(1-2*(ty+1)/n)))*180/Math.PI;
-      return{lonMin,lonMax,latMin,latMax};
-    }
-    const tl=osmDeg2tile(mxLat,mnLon,zoom);
-    const br=osmDeg2tile(mnLat,mxLon,zoom);
-    const list=[];
-    for(let tx=tl.x;tx<=br.x;tx++)
-      for(let ty=tl.y;ty<=br.y;ty++){
-        const bb=osmTile2bbox(tx,ty,zoom);
-        // Map tile bbox to SVG coords
-        const x1=toX(bb.lonMin), x2=toX(bb.lonMax);
-        const y1=toY(bb.latMax), y2=toY(bb.latMin);
-        list.push({
-          url:`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${ty}/${tx}`,
-          x:x1, y:y1, w:x2-x1, h:y2-y1,
-        });
-      }
-    setTiles(list);
-  },[mnLat,mxLat,mnLon,mxLon]);
-
-  return(
-    <div style={{position:"relative",userSelect:"none"}}>
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`}
-        style={{background:lm?"#f3f7fb":"#0a1520",borderRadius:3,overflow:"visible",fontFamily:"'DM Mono',monospace"}}
-        onMouseLeave={()=>setHover(null)}>
-
-        <defs>
-          <clipPath id="plotClip">
-            <rect x={ML} y={MT} width={PW} height={PH}/>
-          </clipPath>
-          <linearGradient id="cbGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor="#0a1a6e"/>
-            <stop offset="35%"  stopColor="#0060cc"/>
-            <stop offset="65%"  stopColor="#00ccee"/>
-            <stop offset="100%" stopColor="#ddf0ff"/>
-          </linearGradient>
-        </defs>
-
-        <rect x={ML} y={MT} width={PW} height={PH} fill="#1a2a1a" stroke="#1e3848" strokeWidth={1}/>
-
-        {/* ── ESRI SATELLITE BASEMAP ── */}
-        <g clipPath="url(#plotClip)" opacity={0.92}>
-          {tiles.map((t,i)=>(
-            <image key={i} href={t.url} x={t.x} y={t.y} width={t.w} height={t.h}
-              preserveAspectRatio="none" crossOrigin="anonymous"/>
-          ))}
-        </g>
-
-        {/* ── FLOOD CELLS (semi-transparent blue over satellite) ── */}
-        <g clipPath="url(#plotClip)">
-          {cells.map((p,i)=>{
-            const x=toX(p.lon)-cw/2, y=toY(p.lat)-ch/2;
-            if(p.depth<=0) return null;
-            return <rect key={i} x={x} y={y} width={cw+0.8} height={ch+0.8}
-              fill={depthColor(p.depth,maxDepth)} opacity={0.68}
-              onMouseEnter={()=>setHover({p,px:toX(p.lon),py:toY(p.lat)})}/>;
-          })}
-        </g>
-
-        {/* ── LAT/LON GRID LINES ── */}
-        <g clipPath="url(#plotClip)" opacity={0.25}>
-          {latTicks.map(v=><line key={`lat${v}`} x1={ML} x2={ML+PW} y1={toY(v)} y2={toY(v)} stroke="#88aacc" strokeWidth={0.5} strokeDasharray="3,4"/>)}
-          {lonTicks.map(v=><line key={`lon${v}`} x1={toX(v)} x2={toX(v)} y1={MT} y2={MT+PH} stroke="#88aacc" strokeWidth={0.5} strokeDasharray="3,4"/>)}
-        </g>
-
-        {/* ── AXES TICK LABELS ── */}
-        {/* Latitude — left margin */}
-        {latTicks.filter(v=>v>=mnLat&&v<=mxLat).map(v=>(
-          <g key={`latL${v}`}>
-            <line x1={ML-3} x2={ML} y1={toY(v)} y2={toY(v)} stroke="#446677" strokeWidth={1}/>
-            <text x={ML-5} y={toY(v)+3} fill="#5a8898" fontSize={7} textAnchor="end">{v.toFixed(2)}°</text>
-          </g>
-        ))}
-        {/* Longitude — bottom margin */}
-        {lonTicks.filter(v=>v>=mnLon&&v<=mxLon).map(v=>(
-          <g key={`lonB${v}`}>
-            <line x1={toX(v)} x2={toX(v)} y1={MT+PH} y2={MT+PH+3} stroke="#446677" strokeWidth={1}/>
-            <text x={toX(v)} y={MT+PH+13} fill="#5a8898" fontSize={7} textAnchor="middle">{v.toFixed(2)}°</text>
-          </g>
-        ))}
-        {/* Axis border ticks */}
-        <rect x={ML} y={MT} width={PW} height={PH} fill="none" stroke="#2a4858" strokeWidth={1}/>
-
-        {/* ── COLORBAR ── */}
-        <rect x={cbX} y={cbY} width={cbW} height={cbH*0.72} fill="url(#cbGrad)" rx={2}/>
-        <rect x={cbX} y={cbY} width={cbW} height={cbH*0.72} fill="none" stroke="#2a4858" strokeWidth={0.5} rx={2}/>
-        {[0,0.25,0.5,0.75,1].map(f=>{
-          const depthVal=(maxDepth*f).toFixed(1);
-          const ty=cbY+cbH*0.72*(1-f);
-          return<g key={f}>
-            <line x1={cbX+cbW} x2={cbX+cbW+3} y1={ty} y2={ty} stroke="#446677" strokeWidth={0.8}/>
-            <text x={cbX+cbW+5} y={ty+3} fill="#5a8898" fontSize={6.5}>{depthVal}m</text>
-          </g>;
-        })}
-        <text x={cbX+cbW/2} y={cbY-4} fill="#5a8898" fontSize={6.5} textAnchor="middle">depth</text>
-
-        {/* ── COMPASS ROSE ── */}
-        <g transform={`translate(${ML+PW-22},${MT+22})`} opacity={0.7}>
-          <circle cx={0} cy={0} r={12} fill="#0a1520" stroke="#2a4858" strokeWidth={1}/>
-          <polygon points="0,-10 3,0 0,3 -3,0" fill="#ccddee" opacity={0.9}/>
-          <polygon points="0,10 3,0 0,-3 -3,0" fill="#2a4858"/>
-          <text x={0} y={-13} fill="#88aacc" fontSize={6} textAnchor="middle" fontWeight="600">N</text>
-        </g>
-
-        {/* ── SCALE BAR ── */}
-        {(()=>{
-          const latKmPerDeg=111;
-          const lonKmPerDeg=111*Math.cos(midLat*Math.PI/180);
-          const scaleKm=Math.round((mxLon-mnLon)*lonKmPerDeg/4);
-          const scalePx=scaleKm/(((mxLon-mnLon)*lonKmPerDeg))*PW;
-          const sx=ML+10, sy=MT+PH-10;
-          return<g>
-            <rect x={sx} y={sy-5} width={scalePx} height={3} fill="#88aacc" opacity={0.6} rx={1}/>
-            <line x1={sx} x2={sx} y1={sy-8} y2={sy-2} stroke="#88aacc" strokeWidth={1} opacity={0.6}/>
-            <line x1={sx+scalePx} x2={sx+scalePx} y1={sy-8} y2={sy-2} stroke="#88aacc" strokeWidth={1} opacity={0.6}/>
-            <text x={sx+scalePx/2} y={sy-9} fill="#88aacc" fontSize={6.5} textAnchor="middle" opacity={0.7}>{scaleKm} km</text>
-          </g>;
-        })()}
-
-        {/* ── SOURCE LABEL ── */}
-        <text x={ML+4} y={MT+10} fill="#aaccdd" fontSize={6.5} opacity={0.6}>ESRI World Imagery · USGS 3DEP / AWS Terrain · {floodResult?.modelInfo??"rapid flood model"}</text>
-
-        {/* ── WATER LEVEL LINE ANNOTATION ── */}
-        <text x={ML+PW/2} y={MT+PH-4} fill="#00cceeaa" fontSize={6.5} textAnchor="middle">
-          WL = {wl.toFixed(2)} m MLLW · max flood depth = {maxDepth.toFixed(2)} m
-        </text>
-
-        {/* ── HOVER TOOLTIP ── */}
-        {hover&&(()=>{
-          const {p,px,py}=hover;
-          const d=p.depth, isFlood=d>0;
-          const tx=px+ML>ML+PW*0.65?px-90:px+10;
-          const ty=py<MT+60?py+10:py-52;
-          return<g>
-            <circle cx={px} cy={py} r={4} fill="none" stroke="#ffcc00" strokeWidth={1.5} opacity={0.9}/>
-            <rect x={tx} y={ty} width={84} height={48} fill="#050e18" stroke="#2a4858" strokeWidth={0.8} rx={2} opacity={0.95}/>
-            <text x={tx+5} y={ty+10} fill="#88aacc" fontSize={6.5} fontWeight="600">{p.lat.toFixed(4)}°N  {p.lon.toFixed(4)}°E</text>
-            <text x={tx+5} y={ty+21} fill="#5a8898" fontSize={6.5}>Elev: {(p.elev).toFixed(1)} m NAVD88</text>
-            <text x={tx+5} y={ty+31} fill={isFlood?"#00ccee":"#4a8850"} fontSize={6.5}>
-              {isFlood?`Depth: ${d.toFixed(2)} m`:"Dry land"}
-            </text>
-            <text x={tx+5} y={ty+41} fill="#446677" fontSize={6}>
-              {isFlood?`WL−elev: ${(wl-(p.elev-(NAVD_TO_MLLW[stationId]??0.15))).toFixed(2)}m`:
-               `Above WL: ${((p.elev-(NAVD_TO_MLLW[stationId]??0.15))-wl).toFixed(2)}m`}
-            </text>
-          </g>;
-        })()}
-      </svg>
-    </div>
-  );
-}
-
 function DepthBar({label,count,total,color}){
   const pct=total>0?count/total*100:0;
   return(
@@ -971,7 +758,8 @@ export default function ProbabilisticCoastalTwinV5() {
   const [autoUpd,    setAutoUpd]    = useState(true);
 
   // Impact
-  const [elevGrid,   setElevGrid]   = useState([]);
+  const [elevGrid,   setElevGrid]   = useState(null);
+  const impactTimer=useRef(null);
   const [btub,       setBtub]       = useState(null);
   const [census,     setCensus]     = useState(null);
   const [impact,     setImpact]     = useState(null);
@@ -1083,7 +871,7 @@ export default function ProbabilisticCoastalTwinV5() {
     setEnkfResult(null);setEnkfStatus("");setEnkfSigInit(null);setEnkfLastUpdated(null);setEnkfUserTriggered(false);
     setMlResult(null);setMlStat("");setMlErr(null);setTideFc72([]);
     setHistoricalReplay(null);setHistoricalReplayError(null);setHistoricalReplayLead(6);setHistoricalReplayIndex(0);
-    setBtub(null);setImpact(null);setProbImpact(null);setCensus(null);setElevGrid([]);setImpStat("");
+    setBtub(null);setImpact(null);setProbImpact(null);setCensus(null);setElevGrid(null);setImpStat("");
     setImpactSource("live");
     setTab(current=>{
       if(selectedEvent?.kind==="analog"&&current==="⚡ forecast") return "◷ historical analog";
@@ -1179,14 +967,16 @@ export default function ProbabilisticCoastalTwinV5() {
   },[enkfResult,mlResult?.issued_at,station.id,tideFc72.length,timeMode,impactSource]);
 
   // ── Impact ────────────────────────────────────────────────────────────────
+  useEffect(()=>()=>clearTimeout(impactTimer.current),[station.id,demRes,floodMethod,impactSource]);
   const requestImpact=async(waterLevel,method=floodMethod,probabilistic=false)=>{
     const response=await fetch(`${ML_BASE}/impact/${station.id}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       water_level:waterLevel,method,resolution:demRes,
       probabilistic_forecast:probabilistic?impactForecast:null,
     })});
     const data=await response.json();if(!response.ok)throw new Error(data.detail??"Impact calculation failed");
+    if(!data.map_grid||!data.btub?.map_depth_png)throw new Error("The impact service is updating. Please refresh the app and retry shortly.");
     setBtub(data.btub);setImpact(data.impact);setCensus(data.census);setProbImpact(data.probImpact??null);
-    setElevGrid(data.terrain_preview??[]);setImpStat("Complete");return data;
+    setElevGrid(data.map_grid??null);setImpStat("Complete");return data;
   };
   const runImpact=useCallback(async()=>{
     setLoading(l=>({...l,impact:true}));setImpStat("Loading terrain and residential inventory; calculating connected flood depths…");
@@ -1217,6 +1007,7 @@ export default function ProbabilisticCoastalTwinV5() {
       replayEnd.setUTCDate(replayEnd.getUTCDate()+1);
     }
     setSelectedEvent(p);
+    setHistoricalReplayLead(6);
     setTimeMode("historic");
     setHistBegin(fmtInput(replayBegin));
     setHistEnd(fmtInput(replayEnd));
@@ -1426,7 +1217,7 @@ export default function ProbabilisticCoastalTwinV5() {
                 <div style={{flex:1}}>
                   <div style={{fontSize:11,color:"#69819b",letterSpacing:2,marginBottom:8}}>HISTORICAL EVENT LIBRARY</div>
                   {presets.some(p=>p.kind==="da")&&<>
-                    <div style={{fontSize:11,color:"#7040a0",letterSpacing:1.3,margin:"0 0 5px"}}>DA BENCHMARKS · ROLLING-ORIGIN 2020–2025</div>
+                    <div style={{fontSize:11,color:"#7040a0",letterSpacing:1.3,margin:"0 0 5px"}}>DA STORM REPLAYS · 2020–2025</div>
                     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:7}}>
                       {presets.filter(p=>p.kind==="da").map(p=>(
                         <button key={p.name} className={`chip${storm===p.name?" on":""}`} onClick={()=>applyPreset(p)} title={`${p.note}. Replay includes 72 hours of pre-event issuances.`}>
@@ -1910,7 +1701,7 @@ export default function ProbabilisticCoastalTwinV5() {
                             setScenario(null);
                             // Show a representative water level immediately. Run Impact
                             // performs the full member-wise probabilistic propagation.
-                            if(elevGrid.length&&census&&(src.value==="live"||tideFc72.length)){
+                            if(Boolean(elevGrid)&&census&&(src.value==="live"||tideFc72.length)){
                               let wl;
                               if(src.value==="prob"&&impactForecast){
                                 const members=peakWaterLevelMembersV5(impactForecast,tideFc72);
@@ -1941,7 +1732,7 @@ export default function ProbabilisticCoastalTwinV5() {
                 </div>
               </div>
 
-              {elevGrid.length>0&&(
+              {Boolean(elevGrid)&&(
                 <div style={{marginTop:8}}>
                   <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
                     <span style={{fontSize:11,color:"#1e4055",letterSpacing:1}}>TOTAL WATER SURFACE (MLLW)</span>
@@ -1949,7 +1740,7 @@ export default function ProbabilisticCoastalTwinV5() {
                   </div>
                   <input type="range" min={0} max={5} step={0.05}
                     value={scenario!==null?scenario:Math.min(displayWL,5)}
-                    onChange={e=>{const v=parseFloat(e.target.value);setScenario(v);rerunFlood(v);}}/>
+                    disabled={loading.impact} onChange={e=>{const v=parseFloat(e.target.value);setScenario(v);clearTimeout(impactTimer.current);impactTimer.current=setTimeout(()=>rerunFlood(v),350);}}/>
                   <div style={{display:"flex",justifyContent:"space-between",marginTop:3}}>
                     <span style={{fontSize:11,color:"#1e4055"}}>0 m</span>
                     <span style={{fontSize:11,color:"#ff8800"}}>2.5 m (major)</span>
@@ -2002,10 +1793,10 @@ export default function ProbabilisticCoastalTwinV5() {
                         setImpact(probImpact.impactP90);
                       }}>P90 PLANNING MAP</button>
                     </>}
-                    <span style={{fontSize:11,color:"#69819b",letterSpacing:1}}>hover cells for coordinates &amp; depth</span>
+                    <span style={{fontSize:11,color:"#69819b",letterSpacing:1}}>pan, zoom or tap to inspect</span>
                   </span>
                 </div>
-                <FloodViz elevGrid={elevGrid} floodResult={btub} wl={scenario??displayWL} stationId={station.id} lm={lm}/>
+                <FloodMap grid={elevGrid} floodResult={btub} probabilityPng={probImpact?.probability_png} station={station} dark={!lm}/>
               </div>
 
               {probImpact&&(
@@ -2014,8 +1805,8 @@ export default function ProbabilisticCoastalTwinV5() {
                   <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
                     <DRow k="PEAK WATER LEVEL" v={`${probImpact.peakWaterLevelM.p50.toFixed(2)} m p50 · ${probImpact.peakWaterLevelM.p10.toFixed(2)}–${probImpact.peakWaterLevelM.p90.toFixed(2)} m p10–p90`}/>
                     <DRow k="FLOOD EXTENT" v={`${probImpact.hazard.floodKm2.p50.toFixed(2)} km² p50 · ${probImpact.hazard.floodKm2.p10.toFixed(2)}–${probImpact.hazard.floodKm2.p90.toFixed(2)} km²`}/>
-                    <DRow k="LIKELY FLOOD CELLS" v={`${probImpact.probabilityCells.filter(cell=>cell.flood_probability>=0.5).length.toLocaleString()} cells with P(flood) ≥ 0.5`}/>
-                    <DRow k="HIGH-CONFIDENCE DEEP" v={`${probImpact.probabilityCells.filter(cell=>cell.probability_depth_gt_1_0m>=0.9).length.toLocaleString()} cells with P(depth > 1 m) ≥ 0.9`}/>
+                    <DRow k="LIKELY FLOOD CELLS" v={`${(probImpact.previewCounts?.likelyFloodCells??0).toLocaleString()} map samples with P(flood) ≥ 0.5`}/>
+                    <DRow k="HIGH-CONFIDENCE DEEP" v={`${(probImpact.previewCounts?.highConfidenceDeep??0).toLocaleString()} map samples with P(depth > 1 m) ≥ 0.9`}/>
                     <DRow k="DA STATUS" v={probImpact.daActiveLeads.length?`Active at +${probImpact.daActiveLeads.join("h, +")}h`:"Gates inactive · meta-stack retained"}/>
                     <DRow k="FLOOD MODEL" v={probImpact.representativeP50.modelInfo}/>
                   </div>
