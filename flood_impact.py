@@ -1,13 +1,16 @@
 """Datum-consistent MSCC/c-HAND and record-level residential loss screening."""
 from __future__ import annotations
+import base64
 import gzip
 import io
 import json
 import math
+import threading
 from pathlib import Path
 import numpy as np
 import requests
 from scipy import ndimage
+from PIL import Image
 import streamlit as st
 
 from constants import ROOT,ASSETS,STATIONS,LEADS
@@ -17,7 +20,7 @@ CURVE=np.array([[0,13.4],[.30,23.3],[.61,32.1],[.91,40.1],[1.22,47.1],
  [3.05,73.2],[3.35,75.4],[3.66,77.2],[3.96,78.5],[4.27,79.5]],float)
 
 
-@st.cache_resource(max_entries=2,show_spinner=False)
+@st.cache_resource(max_entries=1,show_spinner=False)
 def terrain(sid,resolution):
     from cloud_runtime import download_asset
     meta=json.loads((ASSETS/'terrain_catalog.json').read_text())[sid]
@@ -95,7 +98,31 @@ def structure_cells(records,grid):
     return rr[valid],cc[valid],records[valid,3]
 
 
+# Limit simultaneous full-resolution grids on the shared cloud instance.
+IMPACT_LOCK=threading.BoundedSemaphore(1)
+
+
+def packed_png(values,offset=0):
+    """Lossless display samples: RGB encodes integer millimetres (zero = missing)."""
+    finite=np.isfinite(values)
+    encoded=np.rint(np.where(finite,values,0)*1000).astype(np.int64)+offset
+    encoded=np.where(finite,np.clip(encoded,0,16777215),0).astype(np.uint32)
+    rgb=np.stack(((encoded>>16)&255,(encoded>>8)&255,encoded&255),axis=-1).astype(np.uint8)
+    stream=io.BytesIO();Image.fromarray(rgb).save(stream,format='PNG',compress_level=3)
+    return base64.b64encode(stream.getvalue()).decode('ascii')
+
+
+def sample_edges(axis,indices):
+    centres=axis[indices]
+    return np.r_[axis[0]+(axis[0]-axis[1])/2,(centres[:-1]+centres[1:])/2,
+                    axis[-1]+(axis[-1]-axis[-2])/2].tolist()
+
+
 def evaluate_impact(sid,request,census):
+    with IMPACT_LOCK:return _evaluate_impact(sid,request,census)
+
+
+def _evaluate_impact(sid,request,census):
     from cloud_runtime import forecast_tides
     if sid not in STATIONS:raise ValueError('Unknown coastal station.')
     resolution=request.get('resolution','8m')
@@ -110,9 +137,16 @@ def evaluate_impact(sid,request,census):
     rr,cc,values=structure_cells(inventory(sid),grid)
     # Preview sampling affects only display; all metrics and record depths use
     # the complete selected-resolution raster.
-    stride=max(1,math.ceil(math.sqrt(z.size/32000)))
+    stride=max(1,math.ceil(math.sqrt(z.size/262144)))
     pr,pc=np.meshgrid(np.arange(0,z.shape[0],stride),np.arange(0,z.shape[1],stride),indexing='ij')
-    pr,pc=pr.ravel(),pc.ravel();preview_valid=valid[pr,pc];pr,pc=pr[preview_valid],pc[preview_valid]
+    preview_shape=pr.shape
+    row_indices=np.arange(0,z.shape[0],stride);col_indices=np.arange(0,z.shape[1],stride)
+    pr,pc=pr.ravel(),pc.ravel()
+    elevation_min=float(np.nanmin(z));elevation_max=float(np.nanmax(z))
+    map_grid=dict(lats=lats[row_indices].tolist(),lons=lons[col_indices].tolist(),
+        lat_edges=sample_edges(lats,row_indices),lon_edges=sample_edges(lons,col_indices),
+        elevation_png=packed_png(navd[pr,pc].reshape(preview_shape),8388608),
+        elevation_offset=8388608,units='mm')
     def one(water,display=False):
         mask=connected_mask(z,float(water),method)
         count=int(mask.sum());depths=np.maximum(0,float(water)-z[mask])
@@ -127,15 +161,14 @@ def evaluate_impact(sid,request,census):
             meanDepth=float(depths.mean()) if count else 0.,maxDepth=float(depths.max()) if count else 0.,
             shallow=int(np.count_nonzero((depths>0)&(depths<=.3))),
             moderate=int(np.count_nonzero((depths>.3)&(depths<=1))),deep=deep,
-            avgDamage=ratio,elevMin=float(np.nanmin(z)),elevMax=float(np.nanmax(z)),wl=float(water),
+            avgDamage=ratio,elevMin=elevation_min,elevMax=elevation_max,wl=float(water),
             modelKey=method,modelInfo='c-HAND' if method=='c_hand' else 'MSCC',
             source=grid['source'],resolution=resolution)
         impact=dict(affPop=int(round(census['totalPop']*count/n_valid)),affUnits=int(round(census['totalUnits']*count/n_valid)),
             displaced=int(round(census['totalPop']*deep/n_valid)),damage=damage,avgDamage=ratio,
             exposedValue=exposed,floodedRecords=int(flooded.sum()),structVal=None)
         preview_depth=np.where(mask[pr,pc],np.maximum(0,float(water)-z[pr,pc]),0.)
-        if display:hazard['flooded']=[dict(lat=float(lats[r]),lon=float(lons[c]),elevMLLW=float(z[r,c]),depth=float(d))
-                                    for r,c,d in zip(pr,pc,preview_depth) if d>0]
+        if display:hazard['map_depth_png']=packed_png(preview_depth.reshape(preview_shape))
         return hazard,impact,preview_depth
     forecast=request.get('probabilistic_forecast')
     prob=None
@@ -147,20 +180,26 @@ def evaluate_impact(sid,request,census):
         levels=np.floor(peaks/.05+.5)*.05
         unique,counts=np.unique(levels,return_counts=True)
         evaluated={};flood_probability=np.zeros(len(pr));p03=flood_probability.copy();p10=flood_probability.copy()
+        p50,p90=np.quantile(peaks,[.5,.9])
+        map_levels=[float(np.floor(v/.05+.5)*.05) for v in [p50,p90]]
         for level,count in zip(unique,counts):
-            h,i,d=one(level)
+            h,i,d=one(level,float(level) in map_levels)
             evaluated[float(level)]=(h,i)
             flood_probability+=(d>0)*count/len(levels);p03+=(d>.3)*count/len(levels);p10+=(d>1)*count/len(levels)
         def summary(values):return dict(zip(['p10','p50','p90'],map(float,np.quantile(values,[.1,.5,.9]))))
-        p50,p90=np.quantile(peaks,[.5,.9]);h50,i50,_=one(float(np.floor(p50/.05+.5)*.05),True);h90,i90,_=one(float(np.floor(p90/.05+.5)*.05),True)
+        for level in map_levels:
+            if level not in evaluated:
+                h,i,_=one(level,True);evaluated[level]=(h,i)
+        h50,i50=evaluated[map_levels[0]];h90,i90=evaluated[map_levels[1]]
         hs=[evaluated[float(v)][0] for v in levels];imp=[evaluated[float(v)][1] for v in levels]
         prob=dict(ensembleSize=len(levels),ensembleStrategy=forecast.get('ensemble_strategy','common quantile ranks'),
             forecastModel=forecast.get('forecast_model','Meta-stack + EnKF'),
             daActiveLeads=[h for h,active in zip(LEADS,forecast.get('da_active',[])) if active],
             floodMethod=method,responseLevelsEvaluated=len(unique),waterLevelBinM=.05,peakWaterLevelM=summary(peaks),
             peakWaterLevelMembersM=peaks.tolist(),representativeP50=h50,representativeP90=h90,impactP50=i50,impactP90=i90,
-            probabilityCells=[dict(lat=float(lats[r]),lon=float(lons[c]),flood_probability=float(p),probability_depth_gt_0_3m=float(a),probability_depth_gt_1_0m=float(b))
-                              for r,c,p,a,b in zip(pr,pc,flood_probability,p03,p10)],
+            probability_png=packed_png((flood_probability*100).reshape(preview_shape)),
+            previewCounts=dict(likelyFloodCells=int(np.count_nonzero(flood_probability>=.5)),
+                highConfidenceDeep=int(np.count_nonzero(p10>=.9))),
             hazard={out:summary([v[key] for v in hs]) for out,key in [('floodKm2','floodKm2'),('floodFraction','floodFrac'),('meanDepthM','meanDepth'),('maxDepthM','maxDepth')]},
             impact={out:summary([v[key] for v in imp]) for out,key in [('affectedPopulation','affPop'),('displacedPopulation','displaced'),('housingUnitsAtRisk','affUnits'),('meanDamageRatioPct','avgDamage'),('propertyDamageUsd','damage')]},
             uncertaintyScope='Conditional on forecast water levels; terrain, datum, exposure and vulnerability uncertainty are excluded.')
@@ -169,5 +208,4 @@ def evaluate_impact(sid,request,census):
         water=float(request.get('water_level',0))
         if not np.isfinite(water) or water<-5 or water>15:raise ValueError('Choose a finite water level between −5 and 15 m MLLW.')
         hazard,impact,_=one(water,True)
-    return dict(btub=hazard,impact=impact,probImpact=prob,census=census,
-        terrain_preview=[dict(lat=float(lats[r]),lon=float(lons[c]),elev=float(navd[r,c])) for r,c in zip(pr,pc)])
+    return dict(btub=hazard,impact=impact,probImpact=prob,census=census,map_grid=map_grid)

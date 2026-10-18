@@ -20,6 +20,12 @@ footer{display:none}
 from cloud_runtime import SessionRuntime
 if 'achilleus_runtime' not in st.session_state:st.session_state.achilleus_runtime=SessionRuntime()
 if 'achilleus_responses' not in st.session_state:st.session_state.achilleus_responses={}
+# Keep response bodies only until the component acknowledges them. Impact maps
+# must not be retained and retransmitted with every unrelated polling request.
+current=st.session_state.get('achilleus')
+if isinstance(current,dict):
+    outstanding={str(item.get('id','')) for item in current.get('requests',[])}
+    st.session_state.achilleus_responses={k:v for k,v in st.session_state.achilleus_responses.items() if k in outstanding}
 dashboard=components.declare_component('achilleus_dashboard',path=str(ROOT/'frontend'/'dist'))
 request=dashboard(responses=st.session_state.achilleus_responses,key='achilleus',default=None)
 
