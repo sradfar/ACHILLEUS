@@ -1,0 +1,38 @@
+{
+  "8771450": {
+    "totalPop": 350682,
+    "totalUnits": 156191,
+    "tractCount": null,
+    "name": "Galveston County, Texas"
+  },
+  "8638610": {
+    "totalPop": 238005,
+    "totalUnits": 101386,
+    "tractCount": null,
+    "name": "Norfolk city, Virginia"
+  },
+  "8518750": {
+    "totalPop": 1694251,
+    "totalUnits": 913926,
+    "tractCount": null,
+    "name": "New York County, New York"
+  },
+  "8443970": {
+    "totalPop": 797936,
+    "totalUnits": 349616,
+    "tractCount": null,
+    "name": "Suffolk County, Massachusetts"
+  },
+  "8534720": {
+    "totalPop": 274534,
+    "totalUnits": 132038,
+    "tractCount": null,
+    "name": "Atlantic County, New Jersey"
+  },
+  "8726520": {
+    "totalPop": 959107,
+    "totalUnits": 516324,
+    "tractCount": null,
+    "name": "Pinellas County, Florida"
+  }
+}

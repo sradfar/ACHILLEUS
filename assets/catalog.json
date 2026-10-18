@@ -1,0 +1,38 @@
+{
+  "8771450": {
+    "name": "Galveston Pier 21, TX",
+    "artifact": "8771450.tar.gz",
+    "bytes": 752357364,
+    "sha256": "1cf61c2072cf789ef363ed74c18f1f0425da97a1c4bb1767a7bbcac609baca44"
+  },
+  "8726520": {
+    "name": "Saint Petersburg, FL",
+    "artifact": "8726520.tar.gz",
+    "bytes": 678894552,
+    "sha256": "bd4b243d07d337830c74ad3b915c7d8a16950b164fd1b0e9cad0ecbb0f4bc675"
+  },
+  "8518750": {
+    "name": "The Battery, NY",
+    "artifact": "8518750.tar.gz",
+    "bytes": 1091229126,
+    "sha256": "2e4ff32dc5448b419e12e350fde5389cf4e7d2d4a6462a2ffff68430a9ff4257"
+  },
+  "8638610": {
+    "name": "Sewells Point, VA",
+    "artifact": "8638610.tar.gz",
+    "bytes": 987402437,
+    "sha256": "d6b5c3944e2dededfb4cb3c4570ca75f513f17193c20d5c60a448e780bd00380"
+  },
+  "8534720": {
+    "name": "Atlantic City, NJ",
+    "artifact": "8534720.tar.gz",
+    "bytes": 1018217985,
+    "sha256": "38481476d3e3917f5e3c87d1b076ae014c75ffda2c5328ca1bf4137c94891ad2"
+  },
+  "8443970": {
+    "name": "Boston, MA",
+    "artifact": "8443970.tar.gz",
+    "bytes": 1503836581,
+    "sha256": "74d3985a0fd6c54d2038027d7af5b1265f4a3e39af44c51e594631080059f8c6"
+  }
+}
