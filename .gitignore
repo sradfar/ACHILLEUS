@@ -1,0 +1,13 @@
+.model_staging/
+.release/
+.downloads/
+.runtime/
+.runtime_export/
+__pycache__/
+*.pyc
+*.nbc
+*.nbi
+assets/models/
+frontend/node_modules/
+.venv/
+.qa*/
